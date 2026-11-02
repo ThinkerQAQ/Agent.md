@@ -1,38 +1,65 @@
-# AGENTS.md — 软件开发约定
+# AGENTS.md — Engineering Workflow
 
-适用于 Agent 参与的软件项目。项目已有的架构、命令和安全要求优先。本文件约束工作方式，不强制使用特定语言、Docker、MCP 或安装器；平台权限和 CI 需要单独配置。
+**English (default)** · [简体中文](AGENTS_ZH.md)
 
-## 1. Issue：确认任务
-- 开始前检查相关 Issue 和 PR。需要持续跟踪的任务记录 Problem、Expected、Acceptance、Scope；简单修改不强制建 Issue。
-- 明确目标环境、不可破坏的行为和授权范围。编码、推送、合并、发行、部署及删除数据分别确认权限。
+Use this as a practical checklist for agent-assisted software work. **Follow the user's explicit instructions and project-specific rules first.** Adapt effort to risk: a question needs no PR; a production migration needs evidence and a rollback plan.
 
-## 2. Review：检查现状
-- 先查看分支、Worktree、未提交改动、相关代码、配置与运行状态。Bugfix 尽量复现问题并保存修改前基线。
-- 按需使用源码搜索、LSP、终端和授权浏览器；确认工具可用，不读取无关凭据、会话或私人数据。
+## 0. Scope and authorization
 
-## 3. Plan：控制范围
-- 说明根因或关键假设、备选方案、影响范围和验收办法；不做无关重构。
-- 对不确定的需求先验证最小可用闭环，优先复用成熟组件；明确状态与数据所有权，兼顾用户入口和异常恢复。
+Read-only review, local edits, Commit, Push, Merge, Release, Deploy, and deleting user data are **separate permissions**. Do not assume authorization for one implies another. README changes (including translations) require explicit authorization for the task.
 
-## 4. Change：隔离与实施
-- 并行任务使用独立分支或 Worktree，并隔离共用的端口、数据库、进程和输出目录；不覆盖别人的未提交修改。
-- 需要固定工具链或多服务集成时复用项目已有 Docker/Compose；限制可写挂载，不放入真实数据和密钥。简单任务不强制容器化。
-- 按逻辑单元修改、检查 Diff、运行相关测试、Commit；获准后 Push 并确认远端提交。
+**Example:** Asked to “fix the bug and open a PR” → change, verify, push, and open the PR; leave Merge/Release/Deploy untouched.
 
-## 5. Verify：提供证据
-- Bugfix 对照原复现条件验收；运行适当的单元、集成、浏览器和用户路径测试。
-- 编译与 Docker 测试不能替代目标平台的真实安装、升级和交互验收。结果区分 Passed、Failed、Not Tested、N/A。
+## 1. Issue — define success
 
-## 6. PR：审查与合并
-- 通过 PR 提交普通变更，关联 Issue，说明改动、测试、风险和剩余验收。
-- 采用项目约定的 Squash Merge；通过必需检查并获得明确授权后合并。安全清理已合并分支和 Worktree，保留未合并工作。
-- 仅在合并满足 Issue 全部条件时使用 `Fixes #N`，否则使用普通引用。
+Check related issues and PRs. For nontrivial work, record the problem, reproduction, expected behavior, acceptance criteria, and what is out of scope. Small changes do not need an issue.
 
-## 7. Deliver：产品化与交付
-- 根据用户需求选择压缩包、脚本或安装器；逐项验证下载、安装、首次运行、升级、卸载及异常恢复。
-- 保护用户配置、SQLite/WAL、媒体和凭据；升级前备份，验证迁移与必要的恢复路径，不擅自删除数据。
-- Merge、Release、Deploy 是独立操作；目标平台未实测则明确标记。README 需单独授权修改，说明实际可执行的使用步骤。
+**Example:** “With the local service stopped, the extension sidebar must still show navigation; service-dependent actions indicate offline; restarting the service restores access without losing SQLite data.”
 
-## 8. Retrospect：收尾与沉淀
-- 报告 Issue/PR、变更提交、已执行验证及未完成事项；按真实验收状态关闭或保留 Issue。
-- 仅将可复用且能验证的行为规则补入 AGENTS.md；项目特有命令与选型保留在项目文档或补充约定中。
+## 2. Review — inspect before editing
+
+Check the branch, worktree, uncommitted changes, entry points, and the real execution path. Reproduce bugs when possible; separate **observed facts, hypotheses, and unknowns**. Never overwrite another task's changes or inspect unrelated credentials.
+
+**Example (inside the repository):**
+```bash
+git status --short --branch
+git diff --stat
+rg -n 'offline|reconnect' .   # Replace with terms from the actual issue.
+```
+Trace UI → service/Bridge → configuration → storage; record the failing step before editing.
+
+## 3. Plan — model the domain and choose an approach
+
+For architecture tasks, state the domain in one sentence, identify actors/rules/invariants, then map components and validate success **and failure** flows. Inspect existing modules and maintained libraries before building custom infrastructure; compare fit, cost, license, and compatibility. Keep plans proportional to the change.
+
+**Example:** “The UI can render without a running backend” → UI owns rendering and retry state; backend owns data operations; a timeout shows an offline UI and retries without clearing stored data.
+
+## 4. Change — fix the affected path
+
+Keep concurrent work isolated (branches/worktrees, ports, databases). Fix the root cause across relevant callers, configuration, state transitions, errors, and cleanup; remove replaced paths without unrelated rewrites. Keep the project's existing TOML/YAML/JSON conventions, validate settings, protect secrets, and back up user data consistently before migration.
+
+**Example:** For a configurable port, update the launcher, service, extension, and MCP readers to use one validated setting; then remove the obsolete hard-coded port without changing the user's SQLite path.
+
+## 5. Verify — show real evidence
+
+Choose relevant build, unit/integration, smoke, browser, and target-platform tests. Re-test the original failure, a normal path, recovery, and data integrity. A WSL build **does not** prove Windows installation works. Report **Passed / Failed / Not Tested / N/A** with environment and observed result.
+
+**Example:** “Windows + real extension: sidebar visible while service is stopped (Passed); restart reconnects (Passed); macOS installer (Not Tested).”
+
+## 6. PR — make review reproducible
+
+Review the diff for unrelated files, secrets, and generated artifacts. Include the problem, change, test evidence, risk, and rollback. Honor branch protections and the project's Squash Merge policy; merge only with authorization. Use `Fixes #N` only when the issue is fully resolved.
+
+**Example:** “PR #42: decouple sidebar rendering from service connectivity; Windows offline/reconnect Passed; macOS Not Tested; no database changes; rollback by reverting the commit.”
+
+## 7. Deliver — validate the user journey
+
+Commit, Push, Merge, Release, and Deploy are distinct. For software delivery, check download, install, startup, upgrade, and recovery on actual target platforms. For website changes, build and inspect the local preview before asking for review; production deployment needs separate authorization. Protect existing SQLite data (including WAL) and verify backups before migration.
+
+**Example:** “On Windows, back up and verify the existing SQLite database → install the update → confirm original records and settings → test startup failure and recovery → release only when authorized.”
+
+## 8. Retrospect — state what really happened
+
+Report changed files/PR, verification evidence, user-data impact, untested items, and the exact Merge/Release/Deploy status. Do not call incomplete verification “done.”
+
+**Example:** “PR #42 open, not merged; Windows offline/reconnect Passed; macOS Not Tested; user database unchanged; no release or deployment.”
