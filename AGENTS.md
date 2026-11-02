@@ -1,130 +1,131 @@
-# AGENTS.md — Agent 工程协作规范
+# AGENTS.md — Practical Software Engineering Workflow
 
-适用于 Agent 参与的软件开发、排障、重构和交付。**目标是让任务可执行、可验证、可回滚，而不是要求所有任务走同样长的流程。**
+**English (default)** · [简体中文](AGENTS_ZH.md)
 
-本文件提供通用方法和示例，**不指定技术栈、配置格式、测试框架或发布工具**。项目内更具体的 `AGENTS.md`、现有架构及用户当次要求优先；平台权限、分支保护和 CI 必须在对应系统单独设置，写在文档里不等于已经生效。
+Use these instructions for agent-assisted software development, debugging, refactoring, and delivery. The goal is **work that can be executed, verified, reviewed, and rolled back**, not mandatory ceremony for every task.
 
-## 0. 先判断任务与权限
+These are general working practices, not mandates for any programming language, configuration format, build system, installer, or tool. The user's explicit request, available permissions, and more specific project-level instructions take precedence. A document alone does not enforce GitHub branch protection, CI, or deployment permissions.
 
-| 任务 | 最小执行路径 | 完成条件 |
+## 0. Choose the workflow and respect authorization
+
+| Task | Minimum workflow | Evidence of completion |
 | --- | --- | --- |
-| 问答 / 只读 Review | 检查现状 → 解释依据 | 事实、推断和未知点区分清楚；不写入 |
-| 小修改 | Review → Change → Verify | Diff 与针对性检查通过 |
-| Bugfix / 重构 | Issue（按需）→ Review → Plan → Change → Verify → PR | 根因、影响范围和回归证据完整 |
-| 安装 / 迁移 / 发布 | Review → Plan → Change → Verify → Deliver | 目标平台和真实用户路径验证；具备恢复方案 |
+| Question / read-only review | Inspect → explain findings | Facts, hypotheses, and unknowns are distinguished; no writes |
+| Small change | Review → Change → Verify | Relevant diff and checks pass |
+| Bug fix / refactor | Issue (if useful) → Review → Plan → Change → Verify → PR | Root cause, blast radius, and regression evidence are documented |
+| Install / migrate / release | Review → Plan → Change → Verify → Deliver | Real target-platform user journey checked, with a recovery plan |
 
-权限按操作区分：读源码、改本地文件、Commit、Push、Merge、Release、Deploy、删除/覆盖用户数据。**不要把“提交 PR”当成“可以合并”，也不要把“合并”当成“可以发布”。**用户已明确授权的操作不必重复确认；未授权的高影响操作停在可审查状态。README（含多语言版本）仅在用户明确授权修改该文件时改动。
+Treat local edits, Commit, Push, Merge, Release, Deploy, and deletion/overwriting of user data as **separate actions**. Do not infer permission for one from permission for another. Do not repeatedly seek approval for operations already authorized; leave unauthorized, high-impact steps ready for review. **Modify README files, including translations, only when the user explicitly authorizes README changes for the task.**
 
-## 1. Issue：把需求写成可验收的任务
+## 1. Issue — define an acceptance-testable problem
 
-开始前查看相关 Issue、PR 和进行中的分支；简单修改不强制建 Issue。复杂或需要追踪的任务写清 `Problem`、`Expected`、`Reproduction`、`Acceptance`、`Scope` 和数据边界。
+Before changing a repository, inspect relevant issues, PRs, and concurrent branches. A trivial change does not need an issue. For tracked work, record **Problem, Expected, Reproduction, Acceptance, Scope**, and what user data must not change.
 
-**示例：服务离线时扩展界面空白**
+**Example: extension UI disappears while the local service is offline**
 
 ```text
-Problem: 本地服务未启动时，扩展侧边栏只显示“无法连接”，功能入口消失。
-Reproduction: 关闭该应用的测试服务 → 打开扩展侧边栏 → 刷新。
-Expected: UI 正常渲染；依赖服务的操作置灰并提示离线。
+Problem: The sidebar only says "Cannot connect" when the service is stopped.
+Reproduction: Stop the test service → open the sidebar → refresh.
+Expected: Navigation and settings still render; online-only actions indicate offline.
 Acceptance:
-  1. Windows 实际浏览器中，离线仍能展示导航和设置。
-  2. 服务恢复后，页面无需重装即可重新连接。
-  3. 原有本地数据库与用户设置不变。
-Scope: 扩展初始化、连接状态和错误处理；不重做 UI 风格。
+  1. On a real Windows browser, navigation and settings remain visible offline.
+  2. After restarting the service, reconnecting works without reinstalling.
+  3. Existing SQLite data and user settings remain unchanged.
+Scope: Extension initialization, connection state, and error handling.
+Out of scope: Redesigning the complete UI.
 ```
 
-如果无法复现，记录实际观察和待验证假设，不把猜测写成根因。
+If the problem cannot be reproduced, say exactly what was observed and which hypotheses remain unverified. Do not report a hypothesis as a confirmed root cause.
 
-## 2. Review：先找证据，再改代码
+## 2. Review — collect evidence before editing
 
-**每次修改之前**确认工作目录、分支、Worktree、未提交改动和受影响的真实执行路径。只读任务严格只读；使用已授权的终端、源码搜索、浏览器和设备工具，不擅自读取 Cookie、密钥或无关私人数据。
+Check the working directory, branch, worktrees, uncommitted changes, runtime environment, and the **real execution path**. Keep read-only requests read-only. Use authorized terminal, source-search, and browser/device tools; avoid unrelated credentials, cookies, and private data.
 
-**示例：仓库基线检查（在仓库目录执行）**
+**Example: establish a repository baseline (run inside the repository)**
 
 ```bash
 git status --short --branch
 git branch --show-current
 git log -5 --oneline
 git diff --stat
-rg -n 'connect|offline|retry' .      # 示例关键词，按实际语言和目录调整
+rg -n 'connect|offline|retry' .   # Illustrative terms; adapt to the codebase.
 ```
 
-随后查看入口 → 调用方 → 配置 → 状态/数据 → 下游 → 失败处理。Bugfix 尽可能先保存修改前证据（复现步骤、日志时间、请求/响应状态、截图），并标明运行平台。**禁止覆盖其他任务的未提交修改。**
+Trace entry point → caller → configuration → state/data → dependencies → error path. For bugs, record before-change evidence such as reproduction steps, timestamps, response status, logs, and screenshots, including the target platform. **Never overwrite another task's uncommitted work.**
 
-## 3. Plan：定义领域、选型、影响范围与验收
+## 3. Plan — model the domain, evaluate reuse, define verification
 
-架构任务先用一句话界定领域，再找出参与者、实体、操作、规则和不变量，最后映射为组件与依赖；用一条真实用户路径（含失败分支）验证设计。不要先选框架，再倒推需求。
+For architecture work, start with **one natural-language sentence defining the domain**. Extract actors, entities, operations, rules, boundaries, and invariants; then map them to components, contracts, dependencies, and data flows. Validate the result using an actual user path **and a failure path**, rather than choosing a framework first.
 
-**示例：本地应用与 UI 解耦**
+**Example: decouple the local UI from service availability**
 
 ```text
-领域：用户即使在本地服务停止时，也能查看应用界面与设置。
-实体/状态：UI、连接状态（online/offline/reconnecting）、本地服务。
-不变量：服务不可用 ≠ UI 不可渲染；失败不得清除用户数据。
-边界：UI 控制展示与重试；服务提供数据能力；数据归本地存储所有。
-正常路径：打开 UI → 探测服务 → 获取数据 → 展示。
-失败路径：打开 UI → 探测超时 → 展示离线 UI → 稍后重试 → 恢复数据。
+Domain: Users can open the UI and settings even if the local service is stopped.
+Entities/states: UI, service, connection state (online/offline/reconnecting).
+Invariant: An unavailable service must not prevent UI rendering or erase data.
+Boundary: The UI owns presentation/retries; the service owns data operations.
+Success: Open UI → probe service → fetch data → render content.
+Failure: Open UI → probe times out → render offline UI → retry → recover.
 ```
 
-开始自研基础设施前，检查项目已有模块和成熟组件；按功能契合、维护、许可、安全、兼容性和总成本比较。只有存在明确不满足项时才自研。避免为“解耦”凭空增加微服务、接口层或配置。
+Before building generic infrastructure, examine existing dependencies and mature maintained components. Compare capabilities, integration effort, licenses, security, compatibility, maintenance, and operational cost. Write custom code only for a demonstrated gap; avoid unnecessary services, interfaces, events, or configuration.
 
-**Plan 最少回答：**根因/假设是什么；准备改哪些模块；哪些行为不能变；如何验证成功、失败及回滚；何时需要用户授权。复杂任务先验证最小闭环，小任务直接实施即可。
+**Minimum plan:** root cause or key hypothesis; impacted modules; behavior and data that must not change; success/failure tests; rollback path; authorization boundaries. Small low-risk changes may skip a written plan.
 
-## 4. Change：隔离实施并彻底修复
+## 4. Change — isolate work and repair the complete affected path
 
-并行任务优先使用独立分支或 Worktree，隔离数据库、端口、进程、构建输出和缓存。尊重仓库既有约定；需要多服务一致性环境时使用现有 Docker/Compose，简单任务不强制容器化。
+Use independent branches or worktrees for concurrent tasks. Isolate shared ports, databases, processes, build outputs, and caches. Reuse an existing Docker/Compose setup when a repeatable multi-service environment is needed; do not force containers onto simple tasks.
 
-**示例：独立 Worktree（路径和分支名仅作示例）**
+**Example: isolate a branch (illustrative path and branch)**
 
 ```bash
 git fetch origin
 git worktree add ../app-offline-fix -b fix/offline-ui origin/main
 cd ../app-offline-fix
-# 在独立环境中修改、构建、验证
+# Edit, build, and verify in the isolated worktree.
 git diff --check
 git status --short
 ```
 
-按根因处理整个**相关影响范围**：调用方、配置、状态流转、超时/重试、资源释放、兼容性、日志和数据迁移。修复后移除被替代的旧路径、重复实现和误导性配置；不把“彻底修复”扩大成无关重写。
+Address the root cause across the **affected path**: callers, configuration, state transitions, timeouts/retries, resource cleanup, compatibility, logging, and migration. Once the replacement works, remove superseded code, duplicate paths, and misleading settings. Do not expand a repair into an unrelated rewrite.
 
-- 配置：沿用项目已有的 TOML/YAML/JSON 等模型，统一实际读取入口、类型校验和优先级；可配置项不要散落在硬编码端口、脚本或隐藏默认值中。敏感凭据用安全存储或明确的引用，不写入源码、样例或日志。
-- 数据：迁移前识别真实数据库路径、SQLite/WAL 状态及用户目录。运行中的 SQLite 使用可靠在线备份机制或先正常停库；验证备份可读后再迁移。不得用空库覆盖旧数据。
-- 日志：在故障链路关键节点记录状态、耗时、错误和关联 ID；不记录凭据或无关个人信息。
-- 并发：共享资源需要明确归属与隔离；不要为了“并行”同时修改同一文件或数据库。
+- **Configuration:** Keep the project's existing TOML/YAML/JSON model unless there is an authorized migration. Confirm every reader, writer, precedence rule, and schema validation. Avoid hard-coded personal paths, ports, tunnel identifiers, or hidden defaults. Keep secrets out of source, examples, and logs.
+- **Data:** Before migrating SQLite, identify its actual path, WAL state, and user-owned files. Use a consistent online backup or stop the database cleanly; verify the backup can be read. Never replace a populated database with an empty one.
+- **Logging:** Record meaningful states, duration, failures, and correlation IDs using the existing logging system; never log credentials or unrelated personal information.
+- **Concurrency:** Give shared resources clear ownership. Parallel work should not mutate the same file or live database without coordination.
 
-## 5. Verify：从证据证明完成
+## 5. Verify — demonstrate results with evidence
 
-验收以**真实用户路径**为核心，按风险选择静态检查、构建、单元测试、集成测试、浏览器验证和目标平台安装/升级测试。不要机械要求每种测试，也不要默认跳过已有且相关的测试。
+Validate **real user journeys**. Select relevant static checks, builds, unit tests, integration tests, browser checks, and target-platform installs based on change risk. Do not require every test category for every task or categorically skip relevant tests.
 
-**示例：Go 服务 + 本地 UI（只运行项目实际支持的命令）**
+**Example: Go backend with a local UI (only if the project supports these commands)**
 
 ```bash
-go test ./...               # 适用时执行；不等于端到端验收
+go test ./...             # Useful where applicable; not an end-to-end substitute.
 go build ./...
 git diff --check
-# 在实际运行环境中启动服务并检查健康接口：
+# After starting the service in its real environment:
 curl --fail http://127.0.0.1:18080/health
 ```
 
-至少覆盖：原失败路径 → 修复后同条件复测；一条正常路径；关键失败/恢复路径；持久化数据是否完整。**WSL/Linux 编译通过不等于 Windows 安装通过；模拟浏览器不等于真实扩展通过。**
+Re-run the original failing case, then check a normal journey, an important failure/recovery journey, and user-data integrity. **A successful Linux/WSL build does not prove Windows installation works; an emulated browser does not prove an actual extension works.**
 
-报告必须区分 `Passed`（有证据）、`Failed`（实际失败）、`Not Tested`（未执行）、`N/A`（不适用），写明环境、操作/命令和结果。不能把“理论上应该通过”标成 Passed。
+Use only these statuses: **Passed** (observed evidence), **Failed** (executed but failed), **Not Tested**, or **N/A**. Record the environment, action/command, observed result, and evidence. Never mark a guess as Passed.
 
-**验收记录示例**
+**Example verification matrix — illustrative only, not actual project test results**
 
-| 项目 | 环境/操作 | 状态 | 证据 |
+| Check | Environment/action | Status | Evidence |
 | --- | --- | --- | --- |
-| 编译 | WSL，`go build ./...` | Passed | Exit 0 |
-| 离线 UI | Windows，关闭测试服务后刷新扩展 | Passed | UI 可见，数据操作禁用 |
-| 服务恢复 | Windows，启动服务并点击重试 | Passed | 状态恢复 online |
-| macOS 安装 | 未提供 macOS 环境 | Not Tested | 不得宣称已验证 |
+| Build | WSL, `go build ./...` | Passed | Exit code 0 |
+| Offline UI | Windows extension with test service stopped | Passed | Navigation visible; online-only actions disabled |
+| Reconnection | Restart service and retry in Windows | Passed | State changes to online |
+| macOS installation | No macOS test device | Not Tested | Do not claim support was verified |
 
-以上为**格式示例，不代表任何项目已实际通过这些测试**。
+## 6. PR — make changes inspectable and reproducible
 
-## 6. PR：让别人能看懂、审查和复验
+Create a PR for normal code changes. Reference relevant issues and explain the problem, root cause, scope, test evidence, risks, and rollback. Review the diff for secrets, user data, generated files, and unrelated edits before pushing.
 
-普通代码变更使用 PR；关联 Issue，说明问题、根因、改动边界、验证证据、风险和回滚。先查看 Diff，确认没有密钥、个人数据、构建产物或无关文件。
-
-**示例：提交分支（操作前确认已获 Push 授权）**
+**Example: commit and push (only when Push is authorized)**
 
 ```bash
 git diff --check
@@ -132,10 +133,10 @@ git status --short
 git add path/to/changed-file
 git commit -m "fix: keep UI available while service is offline"
 git push -u origin fix/offline-ui
-# 用仓库支持的 GitHub 工具创建 PR，并附验收记录。
+# Open a PR using an available GitHub tool and attach verification evidence.
 ```
 
-**PR 描述模板**
+**PR description example**
 
 ```text
 Problem / Reproduction:
@@ -147,69 +148,69 @@ Risk / Rollback:
 Related Issue: #N
 ```
 
-仅在合并真正满足 Issue 全部条件时使用 `Fixes #N`，否则使用 `Refs #N`。项目要求 Squash Merge 时必须采用 Squash；检查状态、分支保护和审查授权后才能合并。只清理已合并且已核实无其他任务依赖的分支/Worktree。
+Use `Fixes #N` only when merging truly satisfies the entire issue; otherwise use `Refs #N`. Honor repository-required checks, branch protection, and **Squash Merge** when configured. Merge only when authorized. Delete branches/worktrees only after confirming they are merged and unused.
 
-## 7. Deliver：交付不是仅仅编译成功
+## 7. Deliver — shipping is more than compiling
 
-Commit、Push、Merge、Release、Deploy 是五个不同状态；分别报告并分别执行获得授权的步骤。发布前核实目标环境和用户下载路径，安装器/脚本/压缩包依产品而定，不强制某一种。
+**Commit, Push, Merge, Release, and Deploy are distinct states.** Execute and report each separately according to the user's authorization. Before release, verify download/install paths and choose a package, script, or installer based on product needs.
 
-**示例：带 SQLite 数据的升级验收**
-
-```text
-1. 在目标平台确认旧版本及实际数据路径。
-2. 按数据库一致性要求备份，并验证备份可读取。
-3. 安装新版本；确认首次启动与旧配置迁移。
-4. 对照升级前记录核验数据条目、关键操作及 UI。
-5. 模拟服务未启动、端口占用等异常；验证提示与恢复。
-6. 出错时停止升级并按已验证方案回滚；不能删库重试。
-7. 只有目标平台真实执行后才标为 Passed。
-```
-
-网站修改完成一个获准批次后，执行项目真实构建命令，启动本地预览，检查改动路由和页面渲染；有条件时提供可访问预览并保留到用户完成 review。生产部署需另外授权。README 只在用户明确授权后改动；内容应覆盖可实际复现的安装、配置、运行和验收步骤，不写死会频繁变化的版本。
-
-## 8. Retrospect：明确交付边界
-
-结束时汇报：完成了什么、在哪个分支/PR/提交、哪些验收 Passed、哪些 Failed/Not Tested、数据是否保留、是否 Merge/Release/Deploy、风险和下一步。不要用“全部完成”掩盖未实测部分。
-
-**交付报告示例**
+**Example: upgrade an app that stores data in SQLite**
 
 ```text
-代码：PR #42 已创建，未合并。
-变更：离线 UI、重连状态与错误提示。
-验证：Windows 扩展离线/恢复 Passed；Go 构建 Passed。
-未测：macOS 安装 Not Tested。
-数据：旧 SQLite 未迁移，未执行删除。
-发布：未 Release、未 Deploy。
+1. On the target platform, identify the installed version and real data path.
+2. Take a consistent backup and verify it can be opened.
+3. Install the new version and verify startup and configuration migration.
+4. Compare data records, important actions, and UI with the baseline.
+5. Test service stopped, port conflict, and expected recovery behavior.
+6. If migration fails, stop and use the verified rollback; never delete data to retry.
+7. Mark target-platform validation Passed only after actually executing it.
 ```
 
-## 9. 三个端到端示例
+After an authorized batch of website changes, run the project's actual build, start a local preview, validate affected routes and rendered pages, and preserve preview access until review is complete where feasible. Production deployment requires separate authorization. Change README files only when expressly authorized; use reproducible installation, configuration, run, and verification instructions without unnecessarily pinning fast-changing versions.
 
-以下是 Agent 收到任务后的**执行方式示例**，不是某个项目的真实验收记录。
+## 8. Retrospect — report precise delivery status
 
-### Case A：修复“服务不在线，整个 UI 消失”
+Report changed files, branch/PR/commit, checks marked Passed/Failed/Not Tested, effect on user data, Merge/Release/Deploy status, and unresolved risks. Do not say “all done” if a required platform or workflow remains untested.
 
-1. **Review**：检查 UI 初始化和服务探测的调用顺序；停用自己启动的测试服务，复现空白界面并记录异常；查看相关 Issue/PR。
-2. **Plan**：将“渲染 UI”和“请求后台数据”分开；定义 `offline / connecting / online`；失败时只禁用依赖服务的动作。
-3. **Change**：在初始化、重试和错误分支修改；检查是否还有其他页面采用相同错误假设，不引入平行的第二套状态机。
-4. **Verify**：在真实浏览器检查离线启动、在线启动、服务恢复、网络超时和用户数据；逐项标注通过与否。
-5. **PR**：附修改前/后的复现步骤、日志证据和未测试平台；不擅自 Merge。
+**Example handoff**
 
-### Case B：把写死的端口改成项目配置
+```text
+Code: PR #42 opened, not merged.
+Changes: Offline UI, reconnection state, error messages.
+Verified: Windows offline/recovery Passed; Go build Passed.
+Not tested: macOS installation.
+Data: Existing SQLite was neither migrated nor deleted.
+Shipping: No Release or Deploy performed.
+```
 
-1. **Review**：搜索端口常量、启动器、扩展、Web UI 和 MCP 入口；确定目前真正的配置文件与优先级。
-2. **Plan**：沿用现有配置格式，定义一个经过校验的 `listen_address`；确保各入口读取同一最终值，并明确端口冲突的错误处理。
-3. **Change**：迁移所有相关读写入口；删除废弃常量和旧配置路径，保留必要的向后兼容迁移。
-4. **Verify**：用非默认端口分别启动、重启、连接扩展与 MCP；错误端口值应报明确错误；数据目录与凭据保持不变。
-5. **PR**：提供具体配置样例和验证矩阵。README 未获授权则不修改，另行标注待更新内容。
+## 9. Three complete execution examples
 
-### Case C：修改网站项目页并供用户 Review
+The following are **hypothetical agent workflows**, not reports of actual tests performed on a repository.
 
-1. **Review**：找到实际的站点项目、页面路由及复用组件；确认是否有其他任务同时修改相同文件。
-2. **Plan**：用现有文章/项目组件实现，避免为一页复制出新组件体系。
-3. **Change**：仅改授权范围内的布局、数据和样式；检查多语言路由与图片资源。
-4. **Verify**：本地构建、启动预览，在真实页面检查桌面/窄屏布局、图片加载、导航与链接。
-5. **PR**：展示预览地址和截图/人工检查结果；不将本地预览等同生产部署。
+### Case A — The entire UI disappears when the service is offline
+
+1. **Review:** Trace UI initialization and service probing; stop only the test service under your control; reproduce the blank UI and capture errors; inspect related issues and PRs.
+2. **Plan:** Separate initial rendering from remote data fetch. Model `offline / connecting / online`, disabling only operations requiring service access.
+3. **Change:** Fix initialization, retry, and failure branches. Search for the same assumption in other affected routes rather than adding a second competing state machine.
+4. **Verify:** Use a real browser to test offline startup, online startup, reconnection, timeouts, and unchanged user data. Record each result honestly.
+5. **PR:** Attach before/after reproduction steps, logs, and untested-platform notes. Do not merge without authorization.
+
+### Case B — Move a hard-coded port into project configuration
+
+1. **Review:** Search constants in service startup, launchers, extensions, Web UI, and MCP entry points. Identify the actual current configuration file and precedence.
+2. **Plan:** Retain the project's configuration format. Define and validate `listen_address`, ensure every entry point consumes the same effective value, and specify port-conflict handling.
+3. **Change:** Migrate all relevant readers and writers; remove obsolete hard-coded paths while preserving necessary backward-compatible migration.
+4. **Verify:** Start and restart on a non-default port; connect the extension and MCP; check malformed port errors; verify data paths and credentials remain unchanged.
+5. **PR:** Include a configuration example and test matrix. If README changes are not authorized, note them for later without editing.
+
+### Case C — Change a website project page for user review
+
+1. **Review:** Find the real site repository, route, reusable components, and any concurrent work on the same files.
+2. **Plan:** Reuse the existing article/project components instead of duplicating the component system for one page.
+3. **Change:** Adjust only in-scope layout, content, and styles; account for translated routes and image resources.
+4. **Verify:** Build locally, start preview, and inspect desktop/narrow layouts, images, navigation, and links in the rendered route.
+5. **PR:** Provide the preview URL and screenshots or explicit inspection results. A local preview is not production deployment.
 
 ---
 
-**判断规则是否有效：**另一名 Agent 仅凭任务、仓库和本文，就应该能回答“先检查什么、怎么改、怎么验证、什么情况下必须停下”；不能回答的规则需要补充具体步骤，而不是增加空泛口号。
+**A useful rule allows another agent, given only the task, repository, and this document, to determine what to check first, how to change it, how to verify it, and when to stop.** Add concrete steps where that is not possible rather than more abstract slogans.
