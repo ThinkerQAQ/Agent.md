@@ -28,6 +28,19 @@ rg -n 'offline|reconnect' .   # Replace with terms from the actual issue.
 ```
 Trace UI → service/Bridge → configuration → storage; record the failing step before editing.
 
+### Code intelligence — adaptive tool selection
+
+Use **`rg` → CodeGraph → LSP → source review → verification** as a *decision guide*, not a mandatory sequence. Choose only the tools justified by the question and the cost of analysis.
+
+1. **Identify the Git workspace.** Resolve the absolute repository/worktree root; inspect `git status --short --branch` and `git worktree list`. Bind searches, indexes, and diagnostics to that specific workspace. A branch name or a shared tool process does not uniquely identify a working tree.
+2. **Locate with `rg`.** Search filenames, error messages, routes, identifiers, configuration, and call sites first. Narrow the scope and limit output rather than dumping the entire repository. Text matches are leads, not proof of semantic relationships.
+3. **Map with CodeGraph when structure matters.** Use callers/callees, dependencies, symbol relationships, and change-impact queries for cross-module questions. Pass an explicit workspace when supported; check the indexed paths and freshness, especially after edits, branch switches, or file renames. Prefer on-demand, one-shot queries; for structural-only queries, use graph-only mode if available.
+4. **Confirm with LSP when semantics matter.** Ask the language server for definitions, references, implementations, types, and diagnostics when text/graph evidence is insufficient. Match the project language/toolchain and the intended workspace. Compatible language-server daemons may share resources, **not** an interchangeable view of different worktrees. Starting a language server alone does not count as a successful semantic query.
+5. **Read the authoritative source.** Inspect relevant implementations, callers, configurations, and tests before concluding or editing. Verify critical graph/LSP findings against code and, when appropriate, a build or test; distinguish observed facts, hypotheses, and unknowns.
+6. **Report actual evidence.** Name the workspace, tools really used, relevant results, validation status, and unverified areas. Do not claim a tool ran, an index was current, or a call path was verified without evidence.
+
+**Scale the workflow:** a simple fix may need only `rg`, source review, and focused tests; cross-module impact analysis may add CodeGraph; type/interface questions may add LSP; complex changes may warrant all three. If CodeGraph or LSP is unavailable, fall back to `rg` + source inspection + available checks and disclose the limitation. Reuse compatible binaries/caches, but avoid unnecessary persistent indexers or language-server processes. Keep machine-specific executable paths, runtime wrappers, and server setup in local instructions rather than this shared policy.
+
 ## 3. Plan — model the domain and choose an approach
 
 For architecture tasks, state the domain in one sentence, identify actors/rules/invariants, then map components and validate success **and failure** flows. Inspect existing modules and maintained libraries before building custom infrastructure; compare fit, cost, license, and compatibility. Keep plans proportional to the change.
